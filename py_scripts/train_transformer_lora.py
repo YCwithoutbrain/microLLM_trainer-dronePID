@@ -39,7 +39,11 @@ X_std = X_train.std(axis=0)
 
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 save_dir = os.path.join(project_root, "完成模型", timestamp)
-os.makedirs(save_dir, exist_ok=True)
+onnx_dir = os.path.join(save_dir, "onnx")
+pth_dir = os.path.join(save_dir, "Pytorch权重字典")
+os.makedirs(onnx_dir, exist_ok=True)
+os.makedirs(pth_dir, exist_ok=True)
+
 np.save(os.path.join(save_dir, "X_scaler_mean.npy"), X_mean)
 np.save(os.path.join(save_dir, "X_scaler_std.npy"), X_std)
 
@@ -112,6 +116,9 @@ merged_model = model.merge_and_unload()
 merged_model.cpu()
 merged_model.eval()
 
+# 导出 Pytorch 原版权重字典
+torch.save(merged_model.state_dict(), os.path.join(pth_dir, "pid_transformer.pth"))
+
 # 创建一个虚拟输入用于追踪整个图的结构
 dummy_input = torch.randn(1, 9, dtype=torch.float32)
 
@@ -119,7 +126,7 @@ dummy_input = torch.randn(1, 9, dtype=torch.float32)
 torch.onnx.export(
     merged_model, 
     dummy_input, 
-    os.path.join(save_dir, "pid_transformer_deploy.onnx"), 
+    os.path.join(onnx_dir, "pid_transformer_deploy.onnx"), 
     export_params=True, 
     opset_version=14, 
     do_constant_folding=True, 
@@ -128,5 +135,7 @@ torch.onnx.export(
     dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
 )
 
-print(f"\n✅ 模型训练与LoRA合并完成，已保存为：{os.path.join(save_dir, 'pid_transformer_deploy.onnx')}")
-print(f"💡 树莓派部署准备完毕：请将 {save_dir} 目录下的模型与标量文件拷贝至树莓派。")
+print(f"\n✅ 模型训练与LoRA合并完成！")
+print(f"💡 PyTorch权重已保存至：{os.path.join(pth_dir, 'pid_transformer.pth')}")
+print(f"💡 ONNX模型已保存至：{os.path.join(onnx_dir, 'pid_transformer_deploy.onnx')}")
+print(f"💡 树莓派部署准备完毕：拷贝上述 onnx 文件以及 {save_dir} 内记录的标量 mean/std 至树莓派使用。")

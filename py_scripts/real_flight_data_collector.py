@@ -1,14 +1,24 @@
 #树莓派内运行
 #!/usr/bin/env python3
+import os
 import time
 import csv
+import argparse
 from pymavlink import mavutil
 from datetime import datetime
+
+# 解析命令行参数
+parser = argparse.ArgumentParser(description="实飞数据采集脚本")
+parser.add_argument("-t", "--time", type=int, default=10, help="指定采集时间(秒)，未指定时默认为10秒")
+args = parser.parse_args()
 
 # 配置和飞控一致
 SERIAL_PORT = "/dev/serial0"
 BAUD_RATE = 115200
-OUTPUT_CSV = "real_flight_data.csv"
+COLLECT_TIME_SEC = args.time
+
+print("🔐 尝试自动获取串口读写权限...")
+os.system(f"sudo chmod a+rw {SERIAL_PORT}")
 
 print("🔌 正在连接飞控...")
 try:
@@ -24,6 +34,7 @@ except Exception as e:
     exit(1)
 
 def collect_data(collect_time=10):
+    output_csv = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_real_data.csv"
     data = []
     start = time.time()
     print(f"\n📡 开始采集 {collect_time} 秒实飞数据...")
@@ -54,15 +65,15 @@ def collect_data(collect_time=10):
             pass  # 忽略读取错误，不中断采集
         time.sleep(0.05)
     # 保存CSV
-    with open(OUTPUT_CSV, 'w', newline='') as f:
+    with open(output_csv, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["time", "roll", "pitch", "yaw", "rollspeed", "pitchspeed", "yawspeed", "accelerationx", "accelerationy", "accelerationz"])
         writer.writerows(data)
-    print(f"\n✅ 采集完成！共 {len(data)} 条数据，已保存到 {OUTPUT_CSV}")
+    print(f"\n✅ 采集完成！共 {len(data)} 条数据，已保存到 {output_csv}")
 
 if __name__ == "__main__":
     try:
-        collect_data(10)
+        collect_data(COLLECT_TIME_SEC)
     except KeyboardInterrupt:
         print("\n🔌 手动退出采集")
     finally:

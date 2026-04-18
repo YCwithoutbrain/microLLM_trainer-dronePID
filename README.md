@@ -10,7 +10,8 @@
 ## 📂 核心目录与文件说明
 - `py_scripts/`：包含所有的核心 Python 脚本代码。
   - `gen_dataset_fromVOID.py`：合成/生成适配飞控特征的 9 维虚拟飞行数据集。
-  - `train_transformer_lora.py`：基于高精度数据集训练轻量级 Transformer，合并 LoRA 权重，并导出为无框架依赖的 `ONNX` 模型。
+  - `train_transformer_lora.py`：基于高精度数据集训练轻量级 Transformer，合并 LoRA 权重，并导出为无框架依赖的 `ONNX` 模型以及用于后续增量的 Pytorch 权重字典 (`.pth`)。
+  - `Incremental_training_real_data.py`：利用树莓派收集的实飞 `.csv` 数据对已有的基础模型进行真实数据的增量训练（自动加载上一阶段产生的 Pytorch 权重并叠加优化）。
   - `pid_deploy_final_ultra*.py`：部署在树莓派端的推理脚本，通过串口与飞控进行双向 MAVLink 通信。
   - `pid_deploy_final_ultra_feedback*.py`：也是部署在树莓派端的推理反馈脚本，添加了反馈飞控实时PID值的功能，用于验证参数是否真实写入，通过串口与飞控进行双向 MAVLink 通信。
   
@@ -39,14 +40,28 @@ python py_scripts/gen_dataset_fromVOID.py
 ```bash
 python py_scripts/train_transformer_lora.py
 ```
-*模型 `.onnx` 及对应的状态标准化配置文件 `.npy` 将输出至 `./完成模型/` 内。*
+*本次导出的产物会隔离存放于 `./完成模型/<最新时间戳>/onnx` 以及 `./完成模型/<最新时间戳>/Pytorch权重字典` 目录下。
 
-### 4. 实飞数据收集 (可选但推荐)
-你可以使用树莓派连接飞控串口，在真实试飞中收集状态数据：
-1. 将 `实飞数据收集_树莓派内使用/real_flight_data_collector.py` 放进树莓派。
-2. 指定 `/dev/serial0` 串口并运行脚本采集实飞验证数据。
+### 4. 实飞数据收集 (可选，强烈推荐)
+你可以使用树莓派连接飞控串口，在真实试飞中收集状态数据，以便进行后续真实飞控数据的增量训练：
+1. 将 `py_scripts/real_flight_data_collector.py` 放进树莓派。
+2. 运行脚本采集实飞数据。脚本已包含自动获取 `/dev/serial0` 串口读写权限的逻辑。可以通过 `-t` 或 `--time` 参数指定采集时长（秒），例如采集 30 秒：
+   ```bash
+   python real_flight_data_collector.py -t 30
+   ```
+   *如果不带参数运行，默认采集时间为 10 秒。数据将自动保存为带有时间戳的 `.csv` 文件，如 `2026-04-18_10-31-00_real_data.csv`。*
+3. 采集完成后，将生成的 `.csv` 文件复制到 PC 端的 `./实飞数据收集_树莓派内使用/` 目录下。
 
-### 5. 跨平台边缘端部署 (树莓派端)
+### 5. 增量微调模型 (PC 端)
+如果采集到了充足的真实飞行日志：
+1. 请确保把从树莓派里拷贝下来的 `.csv` 文件都放在 `./实飞数据收集_树莓派内使用/` 这个文件夹下。
+2. 运行增量脚本，会在你的最新模型文件夹内生成带有增量权重的新目录：
+   ```bash
+   python py_scripts/Incremental_training_real_data.py
+   ```
+*同理，增量训练后产生的更新模型会嵌套存储于原模型文件夹的后缀 "_已实飞数据增量" 目录下，方便后续迭代和对比分析。
+
+### 6. 跨平台边缘端部署 (树莓派端)
 在树莓派 (Raspberry Pi/Jetson Nano 等伴机电脑) 端进行如下操作：
 1. **无需安装 PyTorch**，只需安装轻量级推理引擎和串口库：
    ```bash
