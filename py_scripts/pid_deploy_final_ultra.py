@@ -1,9 +1,10 @@
 ﻿import numpy as np
 import onnxruntime as ort
-from pymavlink import mavutil
 import time
 import os
 import sys
+import socket
+import json
 
 # ==================
 # 模型加载
@@ -16,47 +17,37 @@ X_mean = np.load("X_scaler_mean.npy")
 X_std = np.load("X_scaler_std.npy")
 
 # ==================
-# 飞控
+# UDP Client 初始化
 # ==================
-serial_port = "/dev/serial0"
-
-# 如果串口存在，但没有读写权限，尝试通过 sudo 自动提权
-if os.path.exists(serial_port) and not os.access(serial_port, os.R_OK | os.W_OK):
-    print(f"⚠️ 检测到对 {serial_port} 没有读写权限，正在尝试通过 sudo 自动获取...")
-    
-    # 尝试临时放开串口的权限
-    os.system(f"sudo chmod a+rw {serial_port}")
-    time.sleep(0.5) # 等待文件系统权限生效
-    
-    # 再次检查权限
-    if not os.access(serial_port, os.R_OK | os.W_OK):
-        print("❌ 自动获取串口权限失败！")
-        print("💡 请尝试使用以下两种方法之一：")
-        print("1. 使用 sudo 运行: sudo python pid_deploy_final_ultra.py")
-        print("2. 授予永久权限: sudo usermod -a -G dialout $USER (随后需要重新登录终端生效)")
-        sys.exit(1)
-    else:
-        print(f"✅ 成功自动获取 {serial_port} 权限！")
-
-master = mavutil.mavlink_connection(serial_port, baud=115200)
-master.wait_heartbeat()
+UDP_SERVER_IP = "127.0.0.1"
+UDP_SERVER_PORT = 5005
+client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+client_sock.settimeout(2.0)
 
 def get_state():
-    msg = master.recv_match(type='ATTITUDE', blocking=True)
-    # 获取加速度计数据
-    imu_msg = master.messages.get('HIGHRES_IMU', master.messages.get('RAW_IMU'))
-    xacc = imu_msg.xacc if imu_msg else 0.0
-    yacc = imu_msg.yacc if imu_msg else 0.0
-    zacc = imu_msg.zacc if imu_msg else 9.8
-    return [msg.roll, msg.pitch, msg.yaw, msg.rollspeed, msg.pitchspeed, msg.yawspeed, xacc, yacc, zacc]
+    try:
+        req = {"cmd": "GET_STATE"}
+        client_sock.sendto(json.dumps(req).encode('utf-8'), (UDP_SERVER_IP, UDP_SERVER_PORT))
+        data, _ = client_sock.recvfrom(1024)
+        resp = json.loads(data.decode('utf-8'))
+        return resp.get("state", [0.0]*9)
+    except Exception as e:
+        print(f"Error getting state: {e}")
+        return [0.0]*9
 
-def send(axis,p,i,d):
-    axis_map = {0: "ROLLRATE", 1: "PITCHRATE", 2: "YAWRATE"}
-    axis_name = axis_map[axis]
-    param_type = mavutil.mavlink.MAV_PARAM_TYPE_REAL32
-    master.mav.param_set_send(master.target_system, master.target_component, f"MC_{axis_name}_P".encode('ascii')[:16].ljust(16, b'\x00'), float(p), param_type)
-    master.mav.param_set_send(master.target_system, master.target_component, f"MC_{axis_name}_I".encode('ascii')[:16].ljust(16, b'\x00'), float(i), param_type)
-    master.mav.param_set_send(master.target_system, master.target_component, f"MC_{axis_name}_D".encode('ascii')[:16].ljust(16, b'\x00'), float(d), param_type)
+def send(axis, p, i, d):
+    try:
+        req = {
+            "cmd": "SET_PID",
+            "axis": axis,
+            "p": float(p),
+            "i": float(i),
+            "d": float(d)
+        }
+        client_sock.sendto(json.dumps(req).encode('utf-8'), (UDP_SERVER_IP, UDP_SERVER_PORT))
+        data, _ = client_sock.recvfrom(1024)
+    except Exception as e:
+        print(f"Error sending PID: {e}")
 
 # ==================
 # 主循环

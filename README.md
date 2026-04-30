@@ -12,8 +12,9 @@
   - `gen_dataset_fromVOID.py`：合成/生成适配飞控特征的 9 维虚拟飞行数据集。
   - `train_transformer_lora.py`：基于高精度数据集训练轻量级 Transformer，合并 LoRA 权重，并导出为无框架依赖的 `ONNX` 模型以及用于后续增量的 Pytorch 权重字典 (`.pth`)。
   - `Incremental_training_real_data.py`：利用树莓派收集的实飞 `.csv` 数据对已有的基础模型进行真实数据的增量训练（自动加载上一阶段产生的 Pytorch 权重并叠加优化）。
-  - `pid_deploy_final_ultra*.py`：部署在树莓派端的推理脚本，通过串口与飞控进行双向 MAVLink 通信。
-  - `pid_deploy_final_ultra_feedback*.py`：也是部署在树莓派端的推理反馈脚本，添加了反馈飞控实时PID值的功能，用于验证参数是否真实写入，通过串口与飞控进行双向 MAVLink 通信。
+  - `communication.py`：专门用于集中管理与飞控的数据交换机制。它维护 MAVLink 串口连接，通过 UDP 提供数据请求和参数下发接口，实现飞控通信与推理模块的彻底解耦。
+  - `pid_deploy_final_ultra*.py`：部署在树莓派端的推理脚本。现已通过网络（UDP 本地 5005 端口）与 `communication.py` 交换数据，读取姿态推算 PID 并下发。
+  - `pid_deploy_final_ultra_feedback*.py`：包含反馈飞控实时 PID 值功能的部署脚本，用于在验证期间监测参数是否真实生效，同样依赖 `communication.py`。
   
 - `实飞数据收集_树莓派内使用/`：
   - `real_flight_data_collector.py`：用于在树莓派中采集实飞的姿态和 IMU 数据供后续微调使用。
@@ -67,13 +68,17 @@ python py_scripts/train_transformer_lora.py
    ```bash
    pip install onnxruntime numpy pymavlink
    ```
-2. 将 `完成模型/` 目录新生成的 `pid_transformer_deploy.onnx`、`X_scaler_mean.npy`、`X_scaler_std.npy` 以及 `py_scripts/pid_deploy_final_ultra.py` 拷贝至树莓派同一个目录下。
+2. 将 `完成模型/` 目录新生成的 `pid_transformer_deploy.onnx`、`X_scaler_mean.npy`、`X_scaler_std.npy` 以及 `py_scripts/` 目录下的 `communication.py`、`pid_deploy_final_ultra.py` 拷贝至树莓派同一个目录下。
 3. 确保树莓派的 `/dev/serial0` (或其它有效串口)连接至飞控的 TELEM 口。
 4. 运行部署脚本开启 AI PID 自适应接管：
+   先启动飞控通信服务接口（首次运行或无权限时会自动尝试 sudo 提权）：
+   ```bash
+   python communication.py
+   ```
+   随后新开一个终端窗口，运行推理与控制脚本：
    ```bash
    python pid_deploy_final_ultra.py
    ```
-   *(为保证串口读写权限，可能需要用到 sudo 或者提前 `sudo chmod a+rw /dev/serial0`)*
 
 ## ⚠️ 注意事项与安全提示
 - **带桨测试风险较高**。请务必在移除螺旋桨的桌面台架测试中或者安全系留飞行平台上验证串口参数修改正常、通信无延迟、读取闭环正常后再尝试挂桨外场试飞。
