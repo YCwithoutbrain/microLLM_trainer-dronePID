@@ -1,4 +1,4 @@
-﻿python real_flight_data_collector.pyimport socket
+﻿#python real_flight_data_collector.pyimport socket
 import concurrent.futures
 import ipaddress
 import os
