@@ -26,9 +26,11 @@ print("MAVLink connected.")
 
 # 缓存最新的飞控状态
 current_state = [0.0]*9 
+current_velocity = [0.0, 0.0, 0.0]  # vx, vy, vz (m/s)
+current_altitude = 0.0              # 相对高度 (m)
 
 def mavlink_receive_loop():
-    global current_state
+    global current_state, current_velocity, current_altitude
     while True:
         msg = master.recv_match(blocking=True)
         if not msg:
@@ -46,6 +48,20 @@ def mavlink_receive_loop():
             current_state[6] = getattr(msg, 'xacc', 0.0)
             current_state[7] = getattr(msg, 'yacc', 0.0)
             current_state[8] = getattr(msg, 'zacc', 9.8)
+        elif msg_type == 'LOCAL_POSITION_NED':
+            current_velocity[0] = msg.vx
+            current_velocity[1] = msg.vy
+            current_velocity[2] = msg.vz
+            current_altitude = -msg.z # NED坐标系下，Z轴向下，所以高度为-Z
+        elif msg_type == 'GLOBAL_POSITION_INT':
+            current_velocity[0] = msg.vx / 100.0
+            current_velocity[1] = msg.vy / 100.0
+            current_velocity[2] = msg.vz / 100.0
+            current_altitude = msg.relative_alt / 1000.0
+        elif msg_type == 'VFR_HUD':
+            # 只在没有收到更精确的全局本地定位时，作为备选高度更新
+            # 但 VFR_HUD 的 alt 是海拔，如果需要相对高度可用其他方式，此处一并收录
+            pass # 也可以根据需要开启: current_altitude = msg.alt
 
 # 启动 MAVLink 接收线程
 threading.Thread(target=mavlink_receive_loop, daemon=True).start()
@@ -64,7 +80,13 @@ while True:
         cmd = request.get("cmd")
         
         if cmd == "GET_STATE":
-            response = {"status": "ok", "state": current_state}
+            response = {
+                "status": "ok", 
+                "state": current_state,
+                "acceleration": [current_state[6], current_state[7], current_state[8]],
+                "velocity": current_velocity,
+                "altitude": current_altitude
+            }
             sock.sendto(json.dumps(response).encode('utf-8'), addr)
             
         elif cmd == "SET_PID":
