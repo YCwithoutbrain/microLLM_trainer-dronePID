@@ -5,14 +5,14 @@
 ## 📖 项目简介
 本项目旨在利用深度学习中的 Transformer 架构处理时间序列/状态特征，为无人机（目前仅适配中型多旋翼）提供**实时、动态的最优 PID 参数调节**。本项目跑通了从数据生成、模型微调训练（使用 LoRA 降低算力要求）到边缘端（如树莓派）跨平台快速部署的全流程。
 
-通过读取飞控回传的 9 维状态数据（Roll、Pitch、Yaw 角误差、角速度以及 X、Y、Z 轴加速度），AI 模型能够在树莓派内以 ONNX Runtime 极低延迟推理出当前姿态下的最佳角速率 PID (P, I, D) 参数，并通过 MAVLink 协议将其毫秒级下发回 Pixhawk 飞控，从而增强无人机在各种复杂工况下的抗扰动和姿态保持能力。
+通过集中式的 `communication.py` 读取飞控回传的状态数据（包括 Roll、Pitch、Yaw 角误差、角速度、三轴加速度、三轴速度以及相对高度等），AI 模型能够在树莓派内以 ONNX Runtime 极低延迟推理出当前姿态下的最佳角速率 PID (P, I, D) 参数，并通过 MAVLink 协议的 UDP 中转通道将其毫秒级下发回 Pixhawk 飞控，从而增强无人机在各种复杂工况下的抗扰动和姿态保持能力。
 
 ## 📂 核心目录与文件说明
 - `py_scripts/`：包含所有的核心 Python 脚本代码。
   - `gen_dataset_fromVOID.py`：合成/生成适配飞控特征的 9 维虚拟飞行数据集。
   - `train_transformer_lora.py`：基于高精度数据集训练轻量级 Transformer，合并 LoRA 权重，并导出为无框架依赖的 `ONNX` 模型以及用于后续增量的 Pytorch 权重字典 (`.pth`)。
   - `Incremental_training_real_data.py`：利用树莓派收集的实飞 `.csv` 数据对已有的基础模型进行真实数据的增量训练（自动加载上一阶段产生的 Pytorch 权重并叠加优化）。
-  - `communication.py`：专门用于集中管理与飞控的数据交换机制。它维护 MAVLink 串口连接，通过 UDP 提供数据请求和参数下发接口，实现飞控通信与推理模块的彻底解耦。
+  - `communication.py`：专门用于集中管理与飞控的数据交换机制。它维护 MAVLink 串口连接，通过 UDP 提供数据请求和参数下发接口，实现飞控通信与推理模块的彻底解耦。除基础 9 维状态外，还额外提供三轴加速度、三轴速度和相对高度数据的解析。
   - `pid_deploy_final_ultra*.py`：部署在树莓派端的推理脚本。现已通过网络（UDP 本地 5005 端口）与 `communication.py` 交换数据，读取姿态推算 PID 并下发。
   - `pid_deploy_final_ultra_feedback*.py`：包含反馈飞控实时 PID 值功能的部署脚本，用于在验证期间监测参数是否真实生效，同样依赖 `communication.py`。
   
